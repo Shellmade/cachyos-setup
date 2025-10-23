@@ -585,8 +585,8 @@ configure_default_applications() {
         log "Setting Ghostty as default terminal..."
         
         # Set MIME type for terminal
-        xdg-mime default ghostty.desktop application/x-terminal-emulator 2>/dev/null || \
-        warn "Could not set Ghostty as default terminal (desktop file may not exist yet)"
+        xdg-mime default com.mitchellh.ghostty.desktop application/x-terminal-emulator 2>/dev/null || \
+        warn "Could not set Ghostty as default terminal"
         
         # Set environment variable for terminal
         echo 'export TERMINAL=ghostty' >> ~/.bashrc 2>/dev/null || true
