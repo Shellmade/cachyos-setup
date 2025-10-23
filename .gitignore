@@ -1,0 +1,22 @@
+# Logs
+*.log
+
+# Cache files
+.cache/
+
+# Temporary files
+*.tmp
+*.temp
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+*~
+
+# Personal configuration (if you want to keep some settings private)
+# personal.conf
