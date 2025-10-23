@@ -343,9 +343,9 @@ configure_wayland_screensharing() {
         fi
     done
     
-    # Install enhanced portal packages for red border indicators
-    log "Installing enhanced portal packages for screen sharing indicators..."
-    PORTAL_PACKAGES=("xdg-desktop-portal-gnome" "gjs" "gnome-shell-extensions")
+    # Install enhanced portal packages for better screen sharing
+    log "Installing enhanced portal packages for screen sharing..."
+    PORTAL_PACKAGES=("xdg-desktop-portal-gnome" "gjs")
     
     for package in "${PORTAL_PACKAGES[@]}"; do
         if ! pacman -Q "$package" &>/dev/null; then
@@ -358,7 +358,7 @@ configure_wayland_screensharing() {
     # Create XDG portal configuration directory
     mkdir -p ~/.config/xdg-desktop-portal
     
-    # Create enhanced portal configuration with red border support
+    # Create enhanced portal configuration for screen sharing
     log "Setting up enhanced XDG desktop portal configuration..."
     
     # Detect desktop environment and configure accordingly
@@ -401,50 +401,15 @@ EOF
     
     # Configure GNOME settings for screen sharing indicators (if on GNOME)
     if [[ "$XDG_CURRENT_DESKTOP" == *"GNOME"* ]]; then
-        log "Configuring GNOME screen sharing indicators..."
+        log "Configuring GNOME screen sharing settings..."
         
-        # Enable screen sharing indicator in GNOME
-        gsettings set org.gnome.desktop.privacy screen-lock-enabled true 2>/dev/null || true
+        # Enable screen sharing permissions in GNOME
+        gsettings set org.gnome.desktop.screensaver lock-enabled true 2>/dev/null || true
         gsettings set org.gnome.desktop.privacy disable-camera false 2>/dev/null || true
         gsettings set org.gnome.desktop.privacy disable-microphone false 2>/dev/null || true
         
         # Enable screen recording indicator
         dconf write /org/gnome/shell/screen-recorder/enable-indicator true 2>/dev/null || true
-        
-        # Create CSS for red border effect
-        log "Setting up red border CSS styling for screen sharing..."
-        mkdir -p ~/.config/gtk-3.0 ~/.config/gtk-4.0
-        
-        # CSS for red border indication during screen sharing
-        cat >> ~/.config/gtk-3.0/gtk.css << 'EOF'
-
-/* Screen sharing red border indicator */
-.screen-sharing-active {
-    border: 3px solid #ff0000 !important;
-    box-shadow: 0 0 10px #ff0000 !important;
-    animation: pulse-red 1s infinite;
-}
-
-@keyframes pulse-red {
-    0% { box-shadow: 0 0 5px #ff0000; }
-    50% { box-shadow: 0 0 15px #ff0000; }
-    100% { box-shadow: 0 0 5px #ff0000; }
-}
-
-/* Screen sharing icon styling */
-.screen-sharing-icon {
-    color: #ff0000 !important;
-    animation: blink 1s infinite;
-}
-
-@keyframes blink {
-    0%, 50% { opacity: 1; }
-    51%, 100% { opacity: 0.3; }
-}
-EOF
-        
-        # Copy to GTK4 config
-        cp ~/.config/gtk-3.0/gtk.css ~/.config/gtk-4.0/gtk.css 2>/dev/null || true
     fi
     
     # Add environment variables for Wayland screen sharing
@@ -481,12 +446,12 @@ set -gx SDL_VIDEODRIVER wayland
 EOF
 
     # Create desktop entry for applications that need screen sharing
-    log "Configuring applications for Wayland screen sharing with red border support..."
+    log "Configuring applications for Wayland screen sharing..."
     
     # Create applications directory
     mkdir -p ~/.local/share/applications
     
-    # Configure browser flags for better Wayland support and red border indicators
+    # Configure browser flags for better Wayland support
     if [[ -f /usr/share/applications/zen-browser.desktop ]]; then
         cp /usr/share/applications/zen-browser.desktop ~/.local/share/applications/
         sed -i 's/Exec=zen-browser/Exec=zen-browser --enable-features=UseOzonePlatform,WebRTCPipeWireCapturer --ozone-platform=wayland --enable-wayland-ime/' ~/.local/share/applications/zen-browser.desktop 2>/dev/null || true
@@ -525,7 +490,6 @@ EOF
     warn "You MUST log out and back in (or reboot) for group changes to take effect"
     info "For OBS Studio, make sure to use 'PipeWire Audio Output Capture' and 'Screen Capture (PipeWire)'"
     info "Applications like Teams, Slack, and Zoom should now support screen sharing properly"
-    info "Red border indicators should appear around shared windows when screen sharing"
     
     # Create test script for verification
     cat > ~/test-screen-sharing.sh << 'EOF'
@@ -539,7 +503,7 @@ systemctl --user status pipewire.service
 echo "3. Environment:"
 echo "XDG_CURRENT_DESKTOP: $XDG_CURRENT_DESKTOP"
 echo "XDG_SESSION_TYPE: $XDG_SESSION_TYPE"
-echo "4. To test: Start screen sharing in Teams/Zoom and look for red border"
+echo "4. To test: Start screen sharing in Teams/Zoom and check functionality"
 EOF
     chmod +x ~/test-screen-sharing.sh
     info "Test script created: ~/test-screen-sharing.sh"
