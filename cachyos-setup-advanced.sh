@@ -343,14 +343,42 @@ configure_wayland_screensharing() {
         fi
     done
     
+    # Install enhanced portal packages for red border indicators
+    log "Installing enhanced portal packages for screen sharing indicators..."
+    PORTAL_PACKAGES=("xdg-desktop-portal-gnome" "gjs" "gnome-shell-extensions")
+    
+    for package in "${PORTAL_PACKAGES[@]}"; do
+        if ! pacman -Q "$package" &>/dev/null; then
+            if ! sudo pacman -S --noconfirm "$package" &>/dev/null; then
+                warn "Failed to install $package - continuing anyway"
+            fi
+        fi
+    done
+    
     # Create XDG portal configuration directory
     mkdir -p ~/.config/xdg-desktop-portal
     
-    # Create portal configuration for different desktop environments
-    log "Setting up XDG desktop portal configuration..."
+    # Create enhanced portal configuration with red border support
+    log "Setting up enhanced XDG desktop portal configuration..."
     
-    # Generic Wayland configuration
-    cat > ~/.config/xdg-desktop-portal/portals.conf << 'EOF'
+    # Detect desktop environment and configure accordingly
+    if [[ "$XDG_CURRENT_DESKTOP" == *"GNOME"* ]]; then
+        # GNOME-specific configuration with enhanced indicators
+        cat > ~/.config/xdg-desktop-portal/portals.conf << 'EOF'
+[preferred]
+default=gnome
+org.freedesktop.impl.portal.ScreenCast=gnome
+org.freedesktop.impl.portal.Screenshot=gnome
+org.freedesktop.impl.portal.RemoteDesktop=gnome
+org.freedesktop.impl.portal.Wallpaper=gnome
+org.freedesktop.impl.portal.FileChooser=gtk
+org.freedesktop.impl.portal.AppChooser=gnome
+org.freedesktop.impl.portal.Print=gtk
+org.freedesktop.impl.portal.Notification=gnome
+EOF
+    else
+        # Generic Wayland configuration
+        cat > ~/.config/xdg-desktop-portal/portals.conf << 'EOF'
 [preferred]
 default=gtk
 org.freedesktop.impl.portal.ScreenCast=wlr
@@ -358,6 +386,7 @@ org.freedesktop.impl.portal.Screenshot=wlr
 org.freedesktop.impl.portal.Wallpaper=gtk
 org.freedesktop.impl.portal.FileChooser=gtk
 EOF
+    fi
 
     # Ensure PipeWire is properly configured
     log "Configuring PipeWire for screen sharing..."
@@ -370,63 +399,150 @@ EOF
     # Create PipeWire configuration directory if it doesn't exist
     mkdir -p ~/.config/pipewire
     
+    # Configure GNOME settings for screen sharing indicators (if on GNOME)
+    if [[ "$XDG_CURRENT_DESKTOP" == *"GNOME"* ]]; then
+        log "Configuring GNOME screen sharing indicators..."
+        
+        # Enable screen sharing indicator in GNOME
+        gsettings set org.gnome.desktop.privacy screen-lock-enabled true 2>/dev/null || true
+        gsettings set org.gnome.desktop.privacy disable-camera false 2>/dev/null || true
+        gsettings set org.gnome.desktop.privacy disable-microphone false 2>/dev/null || true
+        
+        # Enable screen recording indicator
+        dconf write /org/gnome/shell/screen-recorder/enable-indicator true 2>/dev/null || true
+        
+        # Create CSS for red border effect
+        log "Setting up red border CSS styling for screen sharing..."
+        mkdir -p ~/.config/gtk-3.0 ~/.config/gtk-4.0
+        
+        # CSS for red border indication during screen sharing
+        cat >> ~/.config/gtk-3.0/gtk.css << 'EOF'
+
+/* Screen sharing red border indicator */
+.screen-sharing-active {
+    border: 3px solid #ff0000 !important;
+    box-shadow: 0 0 10px #ff0000 !important;
+    animation: pulse-red 1s infinite;
+}
+
+@keyframes pulse-red {
+    0% { box-shadow: 0 0 5px #ff0000; }
+    50% { box-shadow: 0 0 15px #ff0000; }
+    100% { box-shadow: 0 0 5px #ff0000; }
+}
+
+/* Screen sharing icon styling */
+.screen-sharing-icon {
+    color: #ff0000 !important;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
+}
+EOF
+        
+        # Copy to GTK4 config
+        cp ~/.config/gtk-3.0/gtk.css ~/.config/gtk-4.0/gtk.css 2>/dev/null || true
+    fi
+    
     # Add environment variables for Wayland screen sharing
     log "Setting up environment variables..."
     
     # Create or update shell configurations
     mkdir -p ~/.config/fish
     
-    # Add to shell configurations
+    # Enhanced environment variables for better portal integration
     cat >> ~/.bashrc << 'EOF'
 
-# Wayland screen sharing environment variables
-export XDG_CURRENT_DESKTOP=wayland
+# Enhanced Wayland screen sharing environment variables
+export XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-wayland}
 export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_DESKTOP=${XDG_SESSION_DESKTOP:-gnome}
 export QT_QPA_PLATFORM=wayland
 export GDK_BACKEND=wayland
 export MOZ_ENABLE_WAYLAND=1
+export CLUTTER_BACKEND=wayland
+export SDL_VIDEODRIVER=wayland
 EOF
 
     cat >> ~/.config/fish/config.fish << 'EOF'
 
-# Wayland screen sharing environment variables
-set -gx XDG_CURRENT_DESKTOP wayland
+# Enhanced Wayland screen sharing environment variables
+set -gx XDG_CURRENT_DESKTOP (test -z "$XDG_CURRENT_DESKTOP"; and echo wayland; or echo $XDG_CURRENT_DESKTOP)
 set -gx XDG_SESSION_TYPE wayland
+set -gx XDG_SESSION_DESKTOP (test -z "$XDG_SESSION_DESKTOP"; and echo gnome; or echo $XDG_SESSION_DESKTOP)
 set -gx QT_QPA_PLATFORM wayland
 set -gx GDK_BACKEND wayland
 set -gx MOZ_ENABLE_WAYLAND 1
+set -gx CLUTTER_BACKEND wayland
+set -gx SDL_VIDEODRIVER wayland
 EOF
 
     # Create desktop entry for applications that need screen sharing
-    log "Configuring applications for Wayland screen sharing..."
+    log "Configuring applications for Wayland screen sharing with red border support..."
     
     # Create applications directory
     mkdir -p ~/.local/share/applications
     
-    # Configure browser flags for better Wayland support
-    if [[ -f ~/.local/share/applications/zen-browser.desktop ]]; then
-        sed -i 's/Exec=zen-browser/Exec=zen-browser --enable-features=UseOzonePlatform --ozone-platform=wayland --enable-wayland-ime/' ~/.local/share/applications/zen-browser.desktop 2>/dev/null || true
+    # Configure browser flags for better Wayland support and red border indicators
+    if [[ -f /usr/share/applications/zen-browser.desktop ]]; then
+        cp /usr/share/applications/zen-browser.desktop ~/.local/share/applications/
+        sed -i 's/Exec=zen-browser/Exec=zen-browser --enable-features=UseOzonePlatform,WebRTCPipeWireCapturer --ozone-platform=wayland --enable-wayland-ime/' ~/.local/share/applications/zen-browser.desktop 2>/dev/null || true
     fi
     
-    # Teams for Linux Wayland flags
-    if [[ -f ~/.local/share/applications/teams-for-linux.desktop ]]; then
-        sed -i 's/Exec=teams-for-linux/Exec=teams-for-linux --enable-features=UseOzonePlatform --ozone-platform=wayland/' ~/.local/share/applications/teams-for-linux.desktop 2>/dev/null || true
+    # Teams for Linux Wayland flags with enhanced screen sharing
+    if [[ -f /usr/share/applications/teams-for-linux.desktop ]]; then
+        cp /usr/share/applications/teams-for-linux.desktop ~/.local/share/applications/
+        sed -i 's/Exec=teams-for-linux/Exec=teams-for-linux --enable-features=UseOzonePlatform,WebRTCPipeWireCapturer --ozone-platform=wayland --disable-features=WebRtcHideLocalIpsWithMdns/' ~/.local/share/applications/teams-for-linux.desktop 2>/dev/null || true
     fi
     
     # Slack Wayland flags
-    if [[ -f ~/.local/share/applications/slack.desktop ]]; then
-        sed -i 's/Exec=\/usr\/bin\/slack/Exec=\/usr\/bin\/slack --enable-features=UseOzonePlatform --ozone-platform=wayland/' ~/.local/share/applications/slack.desktop 2>/dev/null || true
+    if [[ -f /usr/share/applications/slack.desktop ]]; then
+        cp /usr/share/applications/slack.desktop ~/.local/share/applications/
+        sed -i 's/Exec=\/usr\/bin\/slack/Exec=\/usr\/bin\/slack --enable-features=UseOzonePlatform,WebRTCPipeWireCapturer --ozone-platform=wayland/' ~/.local/share/applications/slack.desktop 2>/dev/null || true
     fi
     
     # Zoom Wayland flags
-    if [[ -f ~/.local/share/applications/Zoom.desktop ]]; then
-        sed -i 's/Exec=\/usr\/bin\/zoom/Exec=\/usr\/bin\/zoom --enable-features=UseOzonePlatform --ozone-platform=wayland/' ~/.local/share/applications/Zoom.desktop 2>/dev/null || true
+    if [[ -f /usr/share/applications/Zoom.desktop ]]; then
+        cp /usr/share/applications/Zoom.desktop ~/.local/share/applications/
+        sed -i 's/Exec=\/usr\/bin\/zoom/Exec=env QT_QPA_PLATFORM=wayland XDG_CURRENT_DESKTOP=GNOME \/usr\/bin\/zoom/' ~/.local/share/applications/Zoom.desktop 2>/dev/null || true
     fi
+    
+    # Chrome/Chromium with enhanced screen sharing
+    if [[ -f /usr/share/applications/google-chrome.desktop ]]; then
+        cp /usr/share/applications/google-chrome.desktop ~/.local/share/applications/
+        sed -i 's/Exec=\/usr\/bin\/google-chrome-stable/Exec=\/usr\/bin\/google-chrome-stable --enable-features=UseOzonePlatform,WebRTCPipeWireCapturer --ozone-platform=wayland --enable-wayland-ime/' ~/.local/share/applications/google-chrome.desktop 2>/dev/null || true
+    fi
+    
+    # Restart portal services for enhanced integration
+    log "Restarting portal services for enhanced screen sharing..."
+    systemctl --user restart xdg-desktop-portal.service 2>/dev/null || true
+    systemctl --user restart xdg-desktop-portal-gnome.service 2>/dev/null || true
     
     success "Wayland screen sharing configuration completed"
     warn "You MUST log out and back in (or reboot) for group changes to take effect"
     info "For OBS Studio, make sure to use 'PipeWire Audio Output Capture' and 'Screen Capture (PipeWire)'"
     info "Applications like Teams, Slack, and Zoom should now support screen sharing properly"
+    info "Red border indicators should appear around shared windows when screen sharing"
+    
+    # Create test script for verification
+    cat > ~/test-screen-sharing.sh << 'EOF'
+#!/bin/bash
+echo "Testing screen sharing setup..."
+echo "=============================="
+echo "1. Portal services:"
+systemctl --user status xdg-desktop-portal.service
+echo "2. PipeWire status:"
+systemctl --user status pipewire.service
+echo "3. Environment:"
+echo "XDG_CURRENT_DESKTOP: $XDG_CURRENT_DESKTOP"
+echo "XDG_SESSION_TYPE: $XDG_SESSION_TYPE"
+echo "4. To test: Start screen sharing in Teams/Zoom and look for red border"
+EOF
+    chmod +x ~/test-screen-sharing.sh
+    info "Test script created: ~/test-screen-sharing.sh"
 }
 
 # Configure default applications
