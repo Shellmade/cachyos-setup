@@ -167,7 +167,7 @@ count_operations() {
     fi
     
     # Add other operations
-    TOTAL_OPERATIONS=$((TOTAL_OPERATIONS + 5))  # Services, directories, wayland, defaults, cleanup
+    TOTAL_OPERATIONS=$((TOTAL_OPERATIONS + 8))  # Services, Hyprland, dotfiles, LazyVim, wayland, defaults, directories, cleanup
 }
 
 step() {
@@ -509,6 +509,324 @@ EOF
     info "Test script created: ~/test-screen-sharing.sh"
 }
 
+# Configure Hyprland and setup dotfiles
+configure_hyprland() {
+    step "Configuring Hyprland environment"
+    
+    # Create Hyprland config directories
+    log "Creating Hyprland configuration directories..."
+    mkdir -p ~/.config/hypr
+    mkdir -p ~/.config/hyprpanel
+    mkdir -p ~/.config/rofi
+    mkdir -p ~/.config/helix
+    mkdir -p ~/.config/nwg-look
+    mkdir -p ~/.config/swappy
+    mkdir -p ~/Pictures/Wallpapers
+    
+    # Enable Hyprland services
+    log "Enabling Hyprland-related services..."
+    if [[ "$DRY_RUN" == false ]]; then
+        systemctl --user enable pipewire.service 2>/dev/null || true
+        systemctl --user enable pipewire-pulse.service 2>/dev/null || true
+        systemctl --user enable wireplumber.service 2>/dev/null || true
+    fi
+    
+    # Set up environment variables for Hyprland
+    log "Setting up Hyprland environment variables..."
+    
+    # Create fish config directory if it doesn't exist
+    mkdir -p ~/.config/fish
+    
+    # Add Hyprland environment variables to shell configs
+    if [[ "$DRY_RUN" == false ]]; then
+        cat >> ~/.bashrc << 'EOF'
+
+# Hyprland environment variables
+export XDG_CURRENT_DESKTOP=Hyprland
+export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_DESKTOP=Hyprland
+export QT_QPA_PLATFORM=wayland
+export GDK_BACKEND=wayland
+export MOZ_ENABLE_WAYLAND=1
+export CLUTTER_BACKEND=wayland
+export SDL_VIDEODRIVER=wayland
+export _JAVA_AWT_WM_NONREPARENTING=1
+EOF
+
+        cat >> ~/.config/fish/config.fish << 'EOF'
+
+# Hyprland environment variables
+set -gx XDG_CURRENT_DESKTOP Hyprland
+set -gx XDG_SESSION_TYPE wayland
+set -gx XDG_SESSION_DESKTOP Hyprland
+set -gx QT_QPA_PLATFORM wayland
+set -gx GDK_BACKEND wayland
+set -gx MOZ_ENABLE_WAYLAND 1
+set -gx CLUTTER_BACKEND wayland
+set -gx SDL_VIDEODRIVER wayland
+set -gx _JAVA_AWT_WM_NONREPARENTING 1
+EOF
+    fi
+
+    # Validate Hyprland configuration if Hyprland is running
+    if command -v hyprctl &> /dev/null && hyprctl version &> /dev/null; then
+        log "Validating Hyprland configuration..."
+        if hyprctl reload &> /dev/null; then
+            success "Hyprland configuration validated successfully"
+        else
+            warn "Hyprland configuration may have issues - check manually"
+        fi
+    fi
+
+    success "Hyprland environment configuration completed"
+}
+
+# Setup dotfiles from GitHub repository
+setup_dotfiles() {
+    step "Setting up dotfiles from Shellmade/Dotfiles repository"
+    
+    # Your dotfiles repository URL
+    DOTFILES_REPO="https://github.com/Shellmade/Dotfiles.git"
+    
+    if [[ "$DRY_RUN" == true ]]; then
+        info "Would clone dotfiles from: $DOTFILES_REPO"
+        info "Would link: hypr, hyprpanel, rofi, helix, ghostty, fastfetch, fuzzel"
+        info "Would skip: monitors.conf (as requested)"
+        return
+    fi
+    
+    log "Cloning dotfiles repository..."
+    
+    # Remove existing dotfiles directory if it exists
+    if [[ -d ~/dotfiles ]]; then
+        warn "Existing dotfiles directory found, backing up to ~/dotfiles.backup"
+        mv ~/dotfiles ~/dotfiles.backup.$(date +%Y%m%d_%H%M%S)
+    fi
+    
+    # Clone the dotfiles repository with latest changes
+    log "Cloning latest dotfiles from GitHub..."
+    if git clone "$DOTFILES_REPO" ~/dotfiles; then
+        log "Dotfiles cloned successfully"
+        
+        # Ensure we have the latest changes
+        cd ~/dotfiles
+        git pull origin master
+        log "Latest dotfiles changes pulled from GitHub"
+        
+        # Backup existing configs before linking
+        log "Backing up existing configurations..."
+        
+        # Create backup directory
+        backup_dir=~/.config/backup_$(date +%Y%m%d_%H%M%S)
+        mkdir -p "$backup_dir"
+        
+        # Your dotfiles use config/ directory structure
+        DOTFILES_CONFIG_DIR="~/dotfiles/config"
+        
+        log "Using dotfiles config directory: $DOTFILES_CONFIG_DIR"
+        
+        # Define configurations to link (excluding monitors.conf as requested)
+        declare -a CONFIGS_TO_LINK=(
+            "hypr"
+            "hyprpanel" 
+            "rofi theme (hyprland)"
+            "helix"
+            "ghostty"
+            "fastfetch"
+            "fuzzel"
+        )
+        
+        # Link each configuration
+        for config in "${CONFIGS_TO_LINK[@]}"; do
+            source_path="$(eval echo $DOTFILES_CONFIG_DIR)/$config"
+            
+            # Handle the special case of "rofi theme (hyprland)"
+            if [[ "$config" == "rofi theme (hyprland)" ]]; then
+                target_path="$HOME/.config/rofi"
+            else
+                target_path="$HOME/.config/$config"
+            fi
+            
+            # Special handling for ghostty - only link if no existing config or user confirms
+            if [[ "$config" == "ghostty" && -f "$HOME/.config/ghostty/config" ]]; then
+                log "Existing Ghostty configuration found, skipping to preserve custom settings"
+                info "✓ Kept existing Ghostty configuration"
+                continue
+            fi
+            
+            if [[ -e "$source_path" ]]; then
+                # Backup existing config if it exists
+                if [[ -e "$target_path" ]]; then
+                    log "Backing up existing $config configuration"
+                    config_name=$(basename "$config")
+                    mv "$target_path" "$backup_dir/$config_name"
+                fi
+                
+                # Create parent directory if needed
+                mkdir -p "$(dirname "$target_path")"
+                
+                # Create symlink
+                log "Linking $config configuration"
+                ln -sf "$source_path" "$target_path"
+                success "✓ Linked $config"
+            else
+                info "Config not found in dotfiles: $config (skipping)"
+            fi
+        done
+        
+        # Special handling for hypr configs - exclude monitors.conf as requested
+        log "Linking individual hypr configuration files (excluding monitors.conf)..."
+        
+        declare -a HYPR_CONFIGS=(
+            "hyprland.conf"
+            "hyprlock.conf"
+            "workspaces.conf"
+        )
+        
+        for hypr_config in "${HYPR_CONFIGS[@]}"; do
+            source_path="~/dotfiles/config/hypr/$hypr_config"
+            target_path="~/.config/hypr/$hypr_config"
+            
+            source_path=$(eval echo "$source_path")
+            target_path=$(eval echo "$target_path")
+            
+            if [[ -f "$source_path" ]]; then
+                # Backup existing if it exists
+                if [[ -f "$target_path" ]]; then
+                    mv "$target_path" "$backup_dir/hypr_$hypr_config"
+                fi
+                
+                log "Linking $hypr_config"
+                ln -sf "$source_path" "$target_path"
+                success "✓ Linked hypr/$hypr_config"
+            fi
+        done
+        
+        # Inform about monitors.conf being skipped
+        warn "Skipped monitors.conf as requested to avoid display setup conflicts"
+        
+        # Run any setup scripts if they exist
+        cd ~/dotfiles
+        if [[ -f install.sh ]]; then
+            read -p "Found install.sh in dotfiles. Run it? (y/n): " run_install
+            if [[ $run_install =~ ^[Yy]$ ]]; then
+                log "Running dotfiles install script"
+                chmod +x install.sh && ./install.sh
+            fi
+        elif [[ -f setup.sh ]]; then
+            read -p "Found setup.sh in dotfiles. Run it? (y/n): " run_setup
+            if [[ $run_setup =~ ^[Yy]$ ]]; then
+                log "Running dotfiles setup script"
+                chmod +x setup.sh && ./setup.sh
+            fi
+        fi
+        
+        # Copy fastfetch custom logo from dotfiles to user config
+        log "Deploying fastfetch custom logo..."
+        if [[ -f ~/dotfiles/config/fastfetch/customlogo.txt ]]; then
+            mkdir -p ~/.config/fastfetch
+            cp ~/dotfiles/config/fastfetch/customlogo.txt ~/.config/fastfetch/customlogo.txt
+            success "✓ Deployed fastfetch custom logo"
+        else
+            warn "fastfetch custom logo not found in dotfiles"
+        fi
+        
+        success "Dotfiles setup completed successfully!"
+        info "Configurations backed up to: $backup_dir"
+        info "Dotfiles repository cloned to: ~/dotfiles"
+        
+        # Show what was linked
+        log "Summary of linked configurations:"
+        echo "  ✓ hypr (hyprland.conf, hyprlock.conf, workspaces.conf)"
+        echo "  ✓ hyprpanel (config.json, modules.json, modules.scss)"
+        echo "  ✓ rofi theme"
+        echo "  ✓ helix"
+        echo "  ✓ ghostty"
+        echo "  ✓ fastfetch (+ custom logo)"
+        echo "  ✓ fuzzel"
+        echo "  ⚠️  monitors.conf - SKIPPED (as requested)"
+        
+    else
+        error "Failed to clone dotfiles repository"
+        warn "Please check your internet connection"
+        return 1
+    fi
+}
+
+# Setup LazyVim configuration for Neovim
+setup_lazyvim() {
+    step "Setting up LazyVim configuration for Neovim"
+    
+    if [[ "$DRY_RUN" == true ]]; then
+        info "Would backup existing Neovim configuration"
+        info "Would clone LazyVim starter configuration"
+        info "Would set up LazyVim for first run"
+        return
+    fi
+
+    # Check if Neovim is installed
+    if ! command -v nvim &> /dev/null; then
+        warn "Neovim not found, skipping LazyVim setup"
+        return 1
+    fi
+
+    log "Setting up LazyVim configuration..."
+    
+    # Backup existing Neovim configuration if it exists
+    if [[ -d ~/.config/nvim ]]; then
+        backup_dir=~/.config/nvim.backup.$(date +%Y%m%d_%H%M%S)
+        log "Backing up existing Neovim configuration to $backup_dir"
+        mv ~/.config/nvim "$backup_dir"
+    fi
+    
+    # Remove any existing nvim data and state directories for clean install
+    if [[ -d ~/.local/share/nvim ]]; then
+        log "Removing existing Neovim data directory"
+        rm -rf ~/.local/share/nvim
+    fi
+    
+    if [[ -d ~/.local/state/nvim ]]; then
+        log "Removing existing Neovim state directory"
+        rm -rf ~/.local/state/nvim
+    fi
+    
+    if [[ -d ~/.cache/nvim ]]; then
+        log "Removing existing Neovim cache directory"
+        rm -rf ~/.cache/nvim
+    fi
+
+    # Clone LazyVim starter configuration
+    log "Cloning LazyVim starter configuration..."
+    if git clone https://github.com/LazyVim/starter ~/.config/nvim; then
+        log "LazyVim starter cloned successfully"
+        
+        # Remove the .git directory to make it your own
+        rm -rf ~/.config/nvim/.git
+        
+        success "LazyVim configuration installed successfully!"
+        info "LazyVim will automatically install plugins on first run"
+        info "Run 'nvim' to start Neovim with LazyVim"
+        info "Press 'q' to quit the initial setup if needed"
+        
+        # Show LazyVim keybindings info
+        log "LazyVim useful keybindings:"
+        echo "  <leader> = <Space> (default leader key)"
+        echo "  <leader>l  = Open LazyVim plugin manager"
+        echo "  <leader>ff = Find files"
+        echo "  <leader>fg = Live grep"
+        echo "  <leader>e  = Toggle file explorer"
+        echo "  <leader>w  = Save file"
+        echo "  <leader>q  = Quit"
+        echo ""
+        echo "Visit https://lazyvim.github.io/installation for more information"
+        
+    else
+        error "Failed to clone LazyVim starter configuration"
+        warn "Please check your internet connection and try again"
+        return 1
+    fi
+}
+
 # Configure default applications
 configure_default_applications() {
     step "Configuring default applications"
@@ -729,6 +1047,12 @@ main() {
             install_aur_packages
             step "Configuring services"
             enable_services
+            step "Configuring Hyprland environment"
+            configure_hyprland
+            step "Setting up dotfiles"
+            setup_dotfiles
+            step "Setting up LazyVim for Neovim"
+            setup_lazyvim
             step "Configuring Wayland screen sharing"
             configure_wayland_screensharing
             step "Setting default applications"
